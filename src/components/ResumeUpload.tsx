@@ -6,9 +6,10 @@ import { Upload, FileText, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface ResumeUploadProps {
   onUploadComplete: () => void;
+  onFileSelect?: (file: File) => void;
 }
 
-export function ResumeUpload({ onUploadComplete }: ResumeUploadProps) {
+export function ResumeUpload({ onUploadComplete, onFileSelect }: ResumeUploadProps) {
   const [uploadStatus, setUploadStatus] = React.useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [fileName, setFileName] = React.useState('');
@@ -25,6 +26,11 @@ export function ResumeUpload({ onUploadComplete }: ResumeUploadProps) {
     setFileName(file.name);
     setUploadStatus('uploading');
     setUploadProgress(0);
+
+    // Call the file handler if provided
+    if (onFileSelect) {
+      onFileSelect(file);
+    }
 
     // Simulate upload progress
     const uploadInterval = setInterval(() => {

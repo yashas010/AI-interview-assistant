@@ -1,11 +1,14 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { InterviewSession, InterviewQuestion, ResumeData } from '../types';
+import { generateInterviewQuestions, evaluateCandidateAnswer, processResumeFile } from '../thunks';
 
 interface InterviewState {
   currentSession: InterviewSession | null;
   resumeData: ResumeData | null;
   isProcessingResume: boolean;
   hasIncompleteSession: boolean;
+  isGeneratingQuestions: boolean;
+  isEvaluatingAnswer: boolean;
   error: string | null;
 }
 
@@ -14,6 +17,8 @@ const initialState: InterviewState = {
   resumeData: null,
   isProcessingResume: false,
   hasIncompleteSession: false,
+  isGeneratingQuestions: false,
+  isEvaluatingAnswer: false,
   error: null,
 };
 
@@ -94,6 +99,52 @@ const interviewSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+  },
+  extraReducers: (builder) => {
+    // Generate questions thunk
+    builder
+      .addCase(generateInterviewQuestions.pending, (state) => {
+        state.isGeneratingQuestions = true;
+        state.error = null;
+      })
+      .addCase(generateInterviewQuestions.fulfilled, (state, action) => {
+        state.isGeneratingQuestions = false;
+        // Questions will be used to start a new session
+      })
+      .addCase(generateInterviewQuestions.rejected, (state, action) => {
+        state.isGeneratingQuestions = false;
+        state.error = action.payload as string || 'Failed to generate questions';
+      })
+      
+    // Process resume thunk
+    builder
+      .addCase(processResumeFile.pending, (state) => {
+        state.isProcessingResume = true;
+        state.error = null;
+      })
+      .addCase(processResumeFile.fulfilled, (state, action) => {
+        state.isProcessingResume = false;
+        state.resumeData = action.payload;
+      })
+      .addCase(processResumeFile.rejected, (state, action) => {
+        state.isProcessingResume = false;
+        state.error = action.payload as string || 'Failed to process resume';
+      })
+      
+    // Evaluate answer thunk
+    builder
+      .addCase(evaluateCandidateAnswer.pending, (state) => {
+        state.isEvaluatingAnswer = true;
+        state.error = null;
+      })
+      .addCase(evaluateCandidateAnswer.fulfilled, (state, action) => {
+        state.isEvaluatingAnswer = false;
+        // Evaluation result will be handled by candidates slice
+      })
+      .addCase(evaluateCandidateAnswer.rejected, (state, action) => {
+        state.isEvaluatingAnswer = false;
+        state.error = action.payload as string || 'Failed to evaluate answer';
+      });
   },
 });
 

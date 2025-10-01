@@ -7,27 +7,44 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Search, Eye, Download, Filter, ChevronRight } from 'lucide-react';
 import { CandidateDetail } from './CandidateDetail';
-
-interface Candidate {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  score: number;
-  status: 'completed' | 'in-progress' | 'pending';
-  interviewDate: Date;
-  summary: string;
-  position: string;
-}
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { setSelectedCandidate, setSearchTerm, setSortBy, setFilterStatus } from '../store/slices/candidatesSlice';
 
 export function InterviewerTab() {
-  const [selectedCandidate, setSelectedCandidate] = React.useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = React.useState('');
-  const [sortBy, setSortBy] = React.useState('score');
-  const [filterStatus, setFilterStatus] = React.useState('all');
+  const dispatch = useAppDispatch();
+  const { 
+    candidates, 
+    selectedCandidateId, 
+    searchTerm, 
+    sortBy, 
+    filterStatus 
+  } = useAppSelector((state) => state.candidates);
 
-  // TODO: Get candidates data from Redux store
-  const candidates: Candidate[] = []; // Will be populated from Redux store
+  // Filter and sort candidates
+  const filteredCandidates = React.useMemo(() => {
+    let filtered = candidates.filter(candidate => {
+      const matchesSearch = candidate.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          candidate.email.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = filterStatus === 'all' || candidate.status === filterStatus;
+      return matchesSearch && matchesStatus;
+    });
+
+    // Sort candidates
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'score':
+          return b.score - a.score;
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'date':
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [candidates, searchTerm, sortBy, filterStatus]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -45,12 +62,16 @@ export function InterviewerTab() {
     return 'text-red-600';
   };
 
-  if (selectedCandidate) {
-    const candidate = candidates.find(c => c.id === selectedCandidate);
+  if (selectedCandidateId) {
+    const candidate = filteredCandidates.find(c => c.id === selectedCandidateId);
     return (
       <CandidateDetail 
-        candidate={candidate!} 
-        onBack={() => setSelectedCandidate(null)} 
+        candidate={{
+          ...candidate!,
+          interviewDate: new Date(candidate!.createdAt),
+          position: 'Full Stack Developer'
+        }} 
+        onBack={() => dispatch(setSelectedCandidate(null))} 
       />
     );
   }
@@ -86,10 +107,10 @@ export function InterviewerTab() {
               placeholder="Search candidates..." 
               className="pl-10"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => dispatch(setSearchTerm(e.target.value))}
             />
           </div>
-          <Select value={sortBy} onValueChange={setSortBy}>
+          <Select value={sortBy} onValueChange={(value: string) => dispatch(setSortBy(value as any))}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
@@ -99,7 +120,7 @@ export function InterviewerTab() {
               <SelectItem value="date">Sort by Date</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <Select value={filterStatus} onValueChange={(value: string) => dispatch(setFilterStatus(value as any))}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Filter by Status" />
             </SelectTrigger>
@@ -121,7 +142,7 @@ export function InterviewerTab() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Candidates</p>
-                  <p className="text-2xl">5</p>
+                  <p className="text-2xl">{candidates.length}</p>
                 </div>
                 <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
                   <span className="text-blue-600">👥</span>
@@ -134,7 +155,7 @@ export function InterviewerTab() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Completed</p>
-                  <p className="text-2xl">3</p>
+                  <p className="text-2xl">{candidates.filter(c => c.status === 'completed').length}</p>
                 </div>
                 <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
                   <span className="text-green-600">✓</span>
@@ -147,7 +168,9 @@ export function InterviewerTab() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Average Score</p>
-                  <p className="text-2xl">85</p>
+                  <p className="text-2xl">
+                    {candidates.length > 0 ? Math.round(candidates.reduce((sum, c) => sum + c.score, 0) / candidates.length) : 0}
+                  </p>
                 </div>
                 <div className="h-8 w-8 bg-yellow-100 rounded-full flex items-center justify-center">
                   <span className="text-yellow-600">📊</span>
@@ -160,7 +183,7 @@ export function InterviewerTab() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">In Progress</p>
-                  <p className="text-2xl">1</p>
+                  <p className="text-2xl">{candidates.filter(c => c.status === 'in-progress').length}</p>
                 </div>
                 <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
                   <span className="text-orange-600">⏳</span>
@@ -174,7 +197,14 @@ export function InterviewerTab() {
       {/* Candidates List */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
-          {candidates.map((candidate) => (
+          {filteredCandidates.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground">No candidates found. Complete an interview to see results here.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            filteredCandidates.map((candidate) => (
             <Card key={candidate.id} className="hover:shadow-md transition-shadow cursor-pointer">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
@@ -194,7 +224,7 @@ export function InterviewerTab() {
                   <div className="flex items-center gap-6">
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">Position</p>
-                      <Badge variant="outline">{candidate.position}</Badge>
+                      <Badge variant="outline">Full Stack Developer</Badge>
                     </div>
                     
                     <div className="text-center">
@@ -214,14 +244,14 @@ export function InterviewerTab() {
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">Interview Date</p>
                       <p className="text-sm">
-                        {candidate.interviewDate.toLocaleDateString()}
+                        {new Date(candidate.createdAt).toLocaleDateString()}
                       </p>
                     </div>
 
                     <Button 
                       variant="ghost" 
                       size="sm"
-                      onClick={() => setSelectedCandidate(candidate.id)}
+                      onClick={() => dispatch(setSelectedCandidate(candidate.id))}
                     >
                       <Eye className="h-4 w-4 mr-2" />
                       View Details
@@ -239,7 +269,8 @@ export function InterviewerTab() {
                 )}
               </CardContent>
             </Card>
-          ))}
+          )))
+        }
         </div>
       </div>
     </div>

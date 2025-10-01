@@ -10,20 +10,23 @@ import { ChatMessage } from './ChatMessage';
 import { Timer } from './Timer';
 import { useAppSelector, useAppDispatch } from '../store/hooks';
 import { generateInterviewQuestions, processResumeFile, evaluateCandidateAnswer } from '../store/thunks';
-import { startNewSession, nextQuestion, updateTimeRemaining, completeSession, setResumeData } from '../store/slices/interviewSlice';
+import { startNewSession, nextQuestion, setResumeData, updateTimeRemaining, completeSession } from '../store/slices/interviewSlice';
 import { addCandidate, addAnswer } from '../store/slices/candidatesSlice';
 
 export function IntervieweeTab() {
   const dispatch = useAppDispatch();
-  const { 
-    currentSession, 
-    resumeData, 
-    isProcessingResume, 
-    isGeneratingQuestions, 
-    isEvaluatingAnswer, 
-    error 
-  } = useAppSelector((state) => state.interview);
   
+  // Redux state
+  const {
+    currentSession,
+    resumeData,
+    isProcessingResume,
+    isGeneratingQuestions,
+    isEvaluatingAnswer,
+    error
+  } = useAppSelector((state) => state.interview);
+
+  // Local state
   const [currentStep, setCurrentStep] = React.useState<'upload' | 'info' | 'interview' | 'completed'>('upload');
   const [candidateInfo, setCandidateInfo] = React.useState({
     name: '',
@@ -39,33 +42,45 @@ export function IntervieweeTab() {
     difficulty?: 'Easy' | 'Medium' | 'Hard';
     timeLimit?: number;
   }>>([]);
+
+  // Timer state
   const [timeLeft, setTimeLeft] = React.useState(0);
   const [timerActive, setTimerActive] = React.useState(false);
-  const [interviewStarted, setInterviewStarted] = React.useState(false);
 
   // Handle file upload
   const handleFileUpload = async (file: File) => {
     try {
-      const result = await dispatch(processResumeFile(file)).unwrap();
-      dispatch(setResumeData(result));
+      await dispatch(processResumeFile(file)).unwrap();
       setCurrentStep('info');
     } catch (error) {
       console.error('Failed to upload resume:', error);
     }
   };
 
-  // Handle info submission and start interview
-  const handleInfoSubmit = async () => {
+  // Handle candidate info form
+  const handleInfoSubmit = () => {
     if (!candidateInfo.name || !candidateInfo.email || !candidateInfo.phone) {
       alert('Please fill in all required fields');
       return;
     }
 
+    // Update candidate info
+    setCandidateInfo(prev => ({
+      ...prev,
+      ...resumeData
+    }));
+
+    // Start interview
+    startInterview();
+  };
+
+  // Start the interview process
+  const startInterview = async () => {
     try {
-      // Generate AI questions
+      // Generate questions using AI
       const questions = await dispatch(generateInterviewQuestions()).unwrap();
       
-      // Create candidate
+      // Create candidate record
       const candidateId = `candidate_${Date.now()}`;
       dispatch(addCandidate({
         name: candidateInfo.name,
@@ -77,16 +92,21 @@ export function IntervieweeTab() {
         answers: []
       }));
 
-      // Start session
-      dispatch(startNewSession({ candidateId, questions }));
-      
-      // Add welcome message
-      setMessages([{
-        id: 1,
-        type: 'ai',
-        content: `Hello ${candidateInfo.name}! I've reviewed your resume. Let's begin the technical interview for the Full Stack Developer position. You'll have 6 questions total: 2 Easy (20s each), 2 Medium (60s each), and 2 Hard (120s each). Are you ready to start?`,
-        timestamp: new Date()
-      }]);
+      // Start interview session
+      dispatch(startNewSession({
+        candidateId,
+        questions
+      }));
+
+      // Add initial AI message
+      setMessages([
+        {
+          id: 1,
+          type: 'ai',
+          content: `Hello ${candidateInfo.name}! I've reviewed your resume. Let's begin the technical interview for the Full Stack Developer position. You'll have 6 questions total: 2 Easy (20s each), 2 Medium (60s each), and 2 Hard (120s each). Are you ready to start?`,
+          timestamp: new Date()
+        }
+      ]);
 
       setCurrentStep('interview');
     } catch (error) {
@@ -94,11 +114,11 @@ export function IntervieweeTab() {
     }
   };
 
-  // Start first question
-  const startFirstQuestion = () => {
+  // Send the first question
+  const sendFirstQuestion = () => {
     if (!currentSession?.questions[0]) return;
 
-    const firstQ = currentSession.questions[0];
+    const firstQuestion = currentSession.questions[0];
     setMessages(prev => [...prev, 
       {
         id: 2,
@@ -109,16 +129,16 @@ export function IntervieweeTab() {
       {
         id: 3,
         type: 'ai',
-        content: `Great! Here's your first question (${firstQ.difficulty.toUpperCase()} - ${firstQ.timeLimit} seconds):\n\n${firstQ.question}`,
+        content: `Great! Here's your first question (${firstQuestion.difficulty.toUpperCase()} - ${firstQuestion.timeLimit} seconds):\n\n${firstQuestion.question}`,
         timestamp: new Date(),
-        difficulty: firstQ.difficulty.charAt(0).toUpperCase() + firstQ.difficulty.slice(1) as 'Easy' | 'Medium' | 'Hard',
-        timeLimit: firstQ.timeLimit
+        difficulty: firstQuestion.difficulty.charAt(0).toUpperCase() + firstQuestion.difficulty.slice(1) as 'Easy' | 'Medium' | 'Hard',
+        timeLimit: firstQuestion.timeLimit
       }
     ]);
 
-    setTimeLeft(firstQ.timeLimit);
+    // Start timer
+    setTimeLeft(firstQuestion.timeLimit);
     setTimerActive(true);
-    setInterviewStarted(true);
   };
 
   // Handle answer submission
@@ -137,17 +157,17 @@ export function IntervieweeTab() {
         timestamp: new Date()
       }]);
 
+      // Stop timer
       setTimerActive(false);
-      setCurrentAnswer('');
 
-      // Evaluate with AI
+      // Evaluate answer with AI
       const { evaluation } = await dispatch(evaluateCandidateAnswer({
         question: currentQ,
         answer: currentAnswer,
         timeSpent
       })).unwrap();
 
-      // Add answer to candidate
+      // Add answer to candidate record
       dispatch(addAnswer({
         candidateId: currentSession.candidateId,
         answer: {
@@ -169,6 +189,9 @@ export function IntervieweeTab() {
         content: `Thank you for your answer! ${evaluation.feedback}`,
         timestamp: new Date()
       }]);
+
+      // Clear answer input
+      setCurrentAnswer('');
 
       // Move to next question or complete
       if (currentSession.currentQuestionIndex < currentSession.totalQuestions - 1) {
@@ -192,7 +215,7 @@ export function IntervieweeTab() {
   const sendNextQuestion = () => {
     if (!currentSession) return;
     
-    const nextQ = currentSession.questions[currentSession.currentQuestionIndex];
+    const nextQ = currentSession.questions[currentSession.currentQuestionIndex + 1];
     if (!nextQ) return;
 
     setMessages(prev => [...prev, {
@@ -215,26 +238,27 @@ export function IntervieweeTab() {
     if (timerActive && timeLeft > 0) {
       interval = setInterval(() => {
         setTimeLeft(prev => {
-          const newTime = prev - 1;
-          if (newTime <= 0) {
+          if (prev <= 1) {
             setTimerActive(false);
-            if (currentStep === 'interview' && interviewStarted) {
+            // Auto-submit on timeout
+            if (currentStep === 'interview') {
               handleAnswerSubmit();
             }
             return 0;
           }
-          return newTime;
+          return prev - 1;
         });
       }, 1000);
     }
 
     return () => clearInterval(interval);
-  }, [timerActive, timeLeft, currentStep, interviewStarted]);
+  }, [timerActive, timeLeft, currentStep]);
 
-  // Update candidate info from resume
+  // Update candidate info when resume data changes
   React.useEffect(() => {
     if (resumeData) {
       setCandidateInfo(prev => ({
+        ...prev,
         name: resumeData.name || prev.name,
         email: resumeData.email || prev.email,
         phone: resumeData.phone || prev.phone
@@ -255,7 +279,6 @@ export function IntervieweeTab() {
             <CardContent>
               <ResumeUpload 
                 onUploadComplete={() => setCurrentStep('info')}
-                onFileSelect={handleFileUpload}
               />
               {error && (
                 <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
@@ -269,7 +292,7 @@ export function IntervieweeTab() {
     );
   }
 
-  // Info step
+  // Info completion step
   if (currentStep === 'info') {
     return (
       <div className="h-full flex flex-col items-center justify-center p-8">
@@ -281,10 +304,7 @@ export function IntervieweeTab() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Full Name
-                </label>
+                <label className="text-sm font-medium">Full Name</label>
                 <Input 
                   value={candidateInfo.name} 
                   onChange={(e) => setCandidateInfo(prev => ({ ...prev, name: e.target.value }))}
@@ -292,10 +312,7 @@ export function IntervieweeTab() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  Email
-                </label>
+                <label className="text-sm font-medium">Email</label>
                 <Input 
                   value={candidateInfo.email}
                   onChange={(e) => setCandidateInfo(prev => ({ ...prev, email: e.target.value }))}
@@ -303,10 +320,7 @@ export function IntervieweeTab() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Phone className="h-4 w-4" />
-                  Phone
-                </label>
+                <label className="text-sm font-medium">Phone</label>
                 <Input 
                   value={candidateInfo.phone}
                   onChange={(e) => setCandidateInfo(prev => ({ ...prev, phone: e.target.value }))}
@@ -314,7 +328,7 @@ export function IntervieweeTab() {
                 />
               </div>
               <Button 
-                onClick={handleInfoSubmit}
+                onClick={handleInfoSubmit} 
                 className="w-full"
                 disabled={isGeneratingQuestions}
               >
@@ -339,11 +353,10 @@ export function IntervieweeTab() {
     const currentQuestionNum = currentSession?.currentQuestionIndex ?? 0;
     const totalQuestions = currentSession?.totalQuestions ?? 6;
     const progress = ((currentQuestionNum + 1) / totalQuestions) * 100;
-    const currentQuestionDifficulty = currentSession?.questions[currentQuestionNum]?.difficulty || 'easy';
 
     return (
       <div className="h-full flex flex-col">
-        {/* Header with progress and info */}
+        {/* Header */}
         <div className="border-b p-4">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
@@ -376,10 +389,10 @@ export function IntervieweeTab() {
             <ChatMessage key={message.id} message={message} />
           ))}
           
-          {/* Show start button if interview not started */}
-          {messages.length === 1 && !interviewStarted && (
+          {/* Show start button if no questions sent yet */}
+          {messages.length === 1 && (
             <div className="text-center">
-              <Button onClick={startFirstQuestion}>
+              <Button onClick={sendFirstQuestion}>
                 Begin Interview
               </Button>
             </div>
@@ -387,7 +400,7 @@ export function IntervieweeTab() {
         </div>
 
         {/* Input area */}
-        {interviewStarted && currentSession && (
+        {messages.length > 1 && currentSession && (
           <div className="border-t p-4">
             <div className="flex gap-2">
               <Input 
@@ -416,7 +429,7 @@ export function IntervieweeTab() {
             </div>
             <div className="mt-2 text-center text-sm text-muted-foreground">
               Current difficulty: <Badge variant="outline" className="ml-1">
-                {currentQuestionDifficulty.charAt(0).toUpperCase() + currentQuestionDifficulty.slice(1)}
+                {currentSession.questions[currentQuestionNum]?.difficulty || 'N/A'}
               </Badge>
               • Time remaining: {timeLeft} seconds
             </div>
@@ -451,23 +464,9 @@ export function IntervieweeTab() {
                 <h3 className="mb-2">Your Score</h3>
                 <div className="text-3xl">{averageScore}/100</div>
                 <Badge variant="secondary" className="mt-2">
-                  {averageScore >= 80 ? 'Excellent Performance' : 
-                   averageScore >= 60 ? 'Good Performance' : 'Needs Improvement'}
+                  {averageScore >= 80 ? 'Excellent' : averageScore >= 60 ? 'Good' : 'Needs Improvement'}
                 </Badge>
               </div>
-              {candidate?.answers && (
-                <div className="text-left space-y-2">
-                  <h4 className="font-medium">Question Breakdown:</h4>
-                  {candidate.answers.map((answer, idx) => (
-                    <div key={answer.questionId} className="flex justify-between text-sm">
-                      <span>Q{idx + 1} ({answer.difficulty})</span>
-                      <Badge variant={answer.aiScore >= 70 ? 'default' : 'secondary'}>
-                        {answer.aiScore}/100
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
